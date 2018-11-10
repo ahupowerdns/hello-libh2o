@@ -278,7 +278,7 @@ The 'long form' of sending data to a request is by setting a `generator`:
 
 First we register two callbacks: `proceedSending` and `stopSending`. The
 last one is called when the HTTP session went away for any reason, and
-offers is the ability to close down the SQL session or perform any other
+offers us the ability to close down the SQL session or perform any other
 cleanup.
 
 We then gather some initial data and send that using `h2o_send`. In this
@@ -286,12 +286,13 @@ syntax we can pass an array of `h2o_iovec_t` buffers, but here we pass just
 1. The final parameter `H2O_SEND_STATE_IN_PROGRESS` means that at a later
 stage we might have more data to offer. 
 
-Importantly, while `h2o_send` is working on the data, you must not touch of
+Importantly, while `h2o_send` is working on the data, you must not touch or
 free the data you passed to be sent: `libh2o` made no copy for you. This in
 contrast to `h2o_send_inline` which as a convenience does so for you.
 
 Once `libh2o` has sent out the initial data, it will call our
-`proceedSending` callback to ask for more. If in `proceedSending` we find
+`proceedSending` callback to ask for more. That is also the moment we can
+free any memory we allocated for `h2o_send`. If in `proceedSending` we find
 that we've hit the end of the data we want to serve, we emit a final call to
 `h2o_send` with as final parameter `H2O_SEND_STATE_FINAL`. 
 
