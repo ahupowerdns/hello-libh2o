@@ -104,7 +104,8 @@ socket option.
 A basic `libh2o` webserver takes around 80 lines to deliver a fully
 functional webserver. What follows is a slightly reordered version of
 [simple.c](simple.c) which in turn is a slightly modified version of
-[simple.c](https://github.com/h2o/h2o/blob/master/examples/libh2o/simple.c).
+[simple.c](https://github.com/h2o/h2o/blob/master/examples/libh2o/simple.c)
+from the `h2o` examples directory.
 
 First the basics:
 
@@ -124,7 +125,7 @@ h2o_config_init(&config);
 h2o_hostconf_t* hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
 
 h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, "/hello", 0);
-h2o_handler_t *handler = h2o_create_handler(pathconf, sizeof(*handler));
+h2o_handler_t *helloHandler = h2o_create_handler(pathconf, sizeof(*handler));
 handler->on_req = helloHandler;
 
 h2o_context_init(&ctx, h2o_evloop_create(), &config);
@@ -133,7 +134,7 @@ accept_ctx.ctx = &ctx;
 accept_ctx.hosts = config.hosts;
 ``` 
 
-This initializes the global config to default values and it registrs a host
+This initializes the global config to default values and it registers a host
 called 'default'. Note that this accepts a `h2o_iovec_t` as described above.
 
 Next up we register a `path` for "/hello". We then create a handler for this
