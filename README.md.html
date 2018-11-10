@@ -7,7 +7,7 @@
 any, please let me know at bert.hubert@powerdns.com or
 [@PowerDNS_Bert](https://twitter.com/PowerDNS_Bert).
 
-[H2O](https://h2o.examp1e.net/) is a powerful webserver used and developed
+[H2O](https://h2o.examp1e.net/) is a powerful web server used and developed
 by Fastly.  Its mission:
 
 > H2O is a new generation HTTP server that provides quicker response to
@@ -16,14 +16,14 @@ by Fastly.  Its mission:
 > HTTP/2 features including prioritized content serving and server push,
 > promising outstanding experience to the visitors of your web site.
 
-H2O as a webserver is very impressive and is seeing more and more use.
-H2O is powered by `libh2o`, which contans all the webserving power of H2O
+H2O as a web server is very impressive and is seeing more and more use.
+H2O is powered by `libh2o`, which contains all the web serving power of H2O
 itself. `libh2o` is also packaged separately for third party use. It is MIT
 licensed. 
 
-I have used more webserver frameworks than is reasonable. `libh2o` is by far
+I have used more web server frameworks than is reasonable. `libh2o` is by far
 the most impressive effort I have ever seen, possibly because as far as I
-know, it is the only webserving library that also powers a leading web
+know, it is the only web serving library that also powers a leading web
 serving project.
 
 The one downside of `libh2o` is that its documentation is currently very
@@ -101,8 +101,8 @@ enough to cover a lot of use cases. Some simpler libraries may allow you to
 be up and running in 12 lines but leave you hanging if you need to set a
 socket option. 
 
-A basic `libh2o` webserver takes around 80 lines to deliver a fully
-functional webserver. What follows is a slightly reordered version of
+A basic `libh2o` web server takes around 80 lines to deliver a fully
+functional web server. What follows is a slightly reordered version of
 [simple.c](simple.c) which in turn is a slightly modified version of
 [simple.c](https://github.com/h2o/h2o/blob/master/examples/libh2o/simple.c)
 from the `h2o` examples directory.
@@ -116,7 +116,7 @@ static h2o_accept_ctx_t accept_ctx;
 ```
 
 These three contain global `h2o` configuration, a `context` for your
-webserver plus an accept `context` for your listener thread.
+web server plus an accept `context` for your listener thread.
 
 Then to get going:
 
@@ -169,7 +169,7 @@ that listens on 127.0.0.1:12345.
     h2o_socket_read_start(sock, on_accept);
 ```
 
-This is the `h2o` specifc bit, where we add the socket we created to the
+This is the `h2o` specific bit, where we add the socket we created to the
 event loop, and tell `h2o` not to read from this socket but if it becomes
 readable to call our handler `on_accept`. This is what happens there:
 
@@ -368,7 +368,7 @@ if(SSL_CTX_set_cipher_list(accept_ctx.ssl_ctx, ciphers) != 1) {
 Finally, we can hook up HTTP2 selection to 'NPN' and 'ALPN':
 
 **Question**: Is this good? Should users do NPN and ALPN? What is the
-differene?
+difference?
 
 ```
 /* setup protocol negotiation methods */ // I have no idea what this means
