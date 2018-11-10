@@ -27,16 +27,19 @@ know, it is the only webserving library that also powers a leading web
 serving project.
 
 The one downside of `libh2o` is that its documentation is currently very
-spread out. Parts live in the `h2o.h` include file, other parts can be found
-in answers in the GitHub issue tracker, in issues tagged with 'FAQ'. A great
-introduction can also be found in [this
+spread out.  Parts live in the
+[`h2o.h`](https://github.com/h2o/h2o/blob/master/include/h2o.h) include
+file, other parts can be found in answers in the GitHub issue tracker, in
+[issues tagged with 'FAQ'](https://github.com/h2o/h2o/labels/FAQ).  A great
+(if slightly outdated) introduction can also be found in [this
 presentation](https://www.slideshare.net/kazuho/h2o-20141103pptx).
 
 Here, I hope to provide an introduction to libh2o that is correct,
 if not necessarily complete. Over time, the goal is to maintain correctness
 while coverage increases.
 
-The H2O maintainers are incredibly friendly and helpful. With this document
+The H2O maintainers are [incredibly friendly and
+helpful](https://github.com/h2o/h2o/issues/1894). With this document
 I hope to help them along in improving (lib)h2o.
 
 # Basics
@@ -57,6 +60,15 @@ This is specifically relevant since HTTP/2 is fundamentally asynchronous
 too: many requests may come in at the same time over a single connection.
 These all need to get serviced in parallel, and not sequentially.
 
+# HTTP/2 notes
+By default `libh2o` is protocol agnostic.  Your code does not need to know
+if it is dealing with HTTP/1 or HTTP/2, and out of the box both are
+available.  The behaviour of how HTTP/1 sessions might be upgraded to HTTP/2
+and the interaction with TLS/SSL can of course be tweaked.
+
+Specific HTTP/2 features such as server push are of course only available on
+HTTP/2 connections.
+
 # Data types & storage
 `libh2o` is written in C. This makes the library very accessible, but also
 means that H2O has to create some data structures from scratch. Here are a
@@ -72,6 +84,7 @@ few types you will encounter a lot:
    `if(h2o_memis(req->method.base, req->method.len, H2O_STRLIT("GET")))`
  * `h2o_iovec_t`: a structure describing memory as above, a pointer and a
    length field. Created by calling `h2o_iovec_init(ptr, len)`.
+ * `h2o_vector_t`: A vector (dynamic array) of items. 
    
 Memory allocation is always difficult. To make it easier, `libh2o` offers us
 pools associated with HTTP requests and connections. Any data allocated to a
@@ -296,5 +309,85 @@ of MIME-types. The final parameter specifies flags [XXX which ones?]
 
 If it is known what files to serve exactly, `h2o_file_register_file` can be
 used.
+
+# Passing data to handlers
+...
+
+# Logging
+...
+
+# SSL / TLS
+`libh2o` uses OpenSSL or picotls for HTTPS and HTTPS/2. There is significant
+interaction between the TLS and HTTP components. When using OpenSSL, we
+first need to initialize that library:
+
+**Question**: Is picotls standalone? Or does it get its crypto operations
+from OpenSSL?
+
+```
+SSL_load_error_strings();
+SSL_library_init();
+OpenSSL_add_all_algorithms();
+```
+
+In `libh2o`, TLS is specific for an accept context as described above. Here
+is how we hook op OpenSSL to the accept context:
+
+```
+accept_ctx.ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+accept_ctx.expect_proxy_line = 0; // makes valgrind happy
+```
+
+We can then continue to configure OpenSSL with options:
+```
+SSL_CTX_set_options(accept_ctx.ssl_ctx, SSL_OP_NO_SSLv2);
+SSL_CTX_set_ecdh_auto(accept_ctx.ssl_ctx, 1);
+
+/* load certificate and private key */
+if(SSL_CTX_use_certificate_chain_file(accept_ctx.ssl_ctx, cert_file) != 1) {
+  fprintf(stderr, "an error occurred while trying to load server certificate file:%s\n", cert_file);
+  return -1;
+}
+
+if(SSL_CTX_use_PrivateKey_file(accept_ctx.ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
+  fprintf(stderr, "an error occurred while trying to load private key file:%s\n", key_file);
+  return -1;
+}
+
+char ciphers[]="DEFAULT:!MD5:!DSS:!DES:!RC4:!RC2:!SEED:!IDEA:!NULL:!ADH:!EXP:!SRP:!PSK";
+if(SSL_CTX_set_cipher_list(accept_ctx.ssl_ctx, ciphers) != 1) {
+  fprintf(stderr, "ciphers could not be set: %s\n", ciphers);
+  return -1;
+}
+```
+
+Finally, we can hook up HTTP2 selection to 'NPN' and 'ALPN':
+
+**Question**: Is this good? Should users do NPN and ALPN? What is the
+differene?
+
+```
+/* setup protocol negotiation methods */ // I have no idea what this means
+#if H2O_USE_NPN
+  h2o_ssl_register_npn_protocols(accept_ctx.ssl_ctx, h2o_http2_npn_protocols);
+#endif
+#if H2O_USE_ALPN
+  h2o_ssl_register_alpn_protocols(accept_ctx.ssl_ctx, h2o_http2_alpn_protocols);
+#endif
+```
+
+# HTTP/2 specific features
+
+**Question**: How much of the pushed data smarts are in libh2o? How many are
+in "h2o the server". Is this CASPER?
+
+# Event loops (libuv, native)
+**Question**: Is there any benefit to using libuv?  When would you want to
+do that?
+...
+
+# Notes on asynchronous operations
+See [this issue](https://github.com/h2o/h2o/issues/1894) for now.
+...
 
 <!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="ext/markdeep.min.js"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
