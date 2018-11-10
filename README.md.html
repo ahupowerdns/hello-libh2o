@@ -1,0 +1,300 @@
+                <meta charset="utf-8" emacsmode="-*- markdown -*-">
+                            **A warm welcome to libh2o**
+
+# Hello, and welcome to libh2o
+
+**NOTE**: This is very early work & may have a lot of mistakes. If you find
+any, please let me know at bert.hubert@powerdns.com or
+[@PowerDNS_Bert](https://twitter.com/PowerDNS_Bert).
+
+[H2O](https://h2o.examp1e.net/) is a powerful webserver used and developed
+by Fastly.  Its mission:
+
+> H2O is a new generation HTTP server that provides quicker response to
+> users with less CPU utilization when compared to older generation of web
+> servers.  Designed from ground-up, the server takes full advantage of
+> HTTP/2 features including prioritized content serving and server push,
+> promising outstanding experience to the visitors of your web site.
+
+H2O as a webserver is very impressive and is seeing more and more use.
+H2O is powered by `libh2o`, which contans all the webserving power of H2O
+itself. `libh2o` is also packaged separately for third party use. It is MIT
+licensed. 
+
+I have used more webserver frameworks than is reasonable. `libh2o` is by far
+the most impressive effort I have ever seen, possibly because as far as I
+know, it is the only webserving library that also powers a leading web
+serving project.
+
+The one downside of `libh2o` is that its documentation is currently very
+spread out. Parts live in the `h2o.h` include file, other parts can be found
+in answers in the GitHub issue tracker, in issues tagged with 'FAQ'. A great
+introduction can also be found in [this
+presentation](https://www.slideshare.net/kazuho/h2o-20141103pptx).
+
+Here, I hope to provide an introduction to libh2o that is correct,
+if not necessarily complete. Over time, the goal is to maintain correctness
+while coverage increases.
+
+The H2O maintainers are incredibly friendly and helpful. With this document
+I hope to help them along in improving (lib)h2o.
+
+# Basics
+H2O comes with a full & leading implementation of HTTP/2. It strives to make
+HTTP/2 as fast as possible, to the point it can be a universal method
+of performing calls and transferring data. 
+
+Within H2O, HTTP requests are 'events' within connections. Events end up
+with a `handler`, and `handler`s use `generator`s to send content. 
+
+Of specific note, unlike most libraries, `libh2o` can be used fully
+asynchronously. This means that your code can receive an HTTP request & go
+chew on it. Meanwhile, other HTTP requests come in and also get served. Once
+your code is done with the earlier HTTP request, it can send out the
+response. 
+
+This is specifically relevant since HTTP/2 is fundamentally asynchronous
+too: many requests may come in at the same time over a single connection.
+These all need to get serviced in parallel, and not sequentially.
+
+# Data types & storage
+`libh2o` is written in C. This makes the library very accessible, but also
+means that H2O has to create some data structures from scratch. Here are a
+few types you will encounter a lot:
+
+ * `H2O_STRLIT`: `h2o` passes strings around as a pointer and a length. This
+   saves on repetitive `strlen()` calls and also makes it possible to pass
+   arbitrary binary data. To pass a "classical C string",
+   `H2O_STRLIT("GET")` is used, which then expands to: 
+   `"GET", strlen("GET")`.
+ * Strings are then compared using `h2o_memis` which accepts two
+   pointer/length pairs. An example: 
+   `if(h2o_memis(req->method.base, req->method.len, H2O_STRLIT("GET")))`
+ * `h2o_iovec_t`: a structure describing memory as above, a pointer and a
+   length field. Created by calling `h2o_iovec_init(ptr, len)`.
+   
+Memory allocation is always difficult. To make it easier, `libh2o` offers us
+pools associated with HTTP requests and connections. Any data allocated to a
+pool will get released automatically when the pool gets disposed.    
+
+# Hello, world
+
+The `libh2o` "Hello World" example server is longer than you may be used to.
+This is because h2o is a very powerful library and it needs to be generic
+enough to cover a lot of use cases. Some simpler libraries may allow you to
+be up and running in 12 lines but leave you hanging if you need to set a
+socket option. 
+
+A basic `libh2o` webserver takes around 80 lines to deliver a fully
+functional webserver. What follows is a slightly reordered version of
+[simple.c](simple.c) which in turn is a slightly modified version of
+[simple.c](https://github.com/h2o/h2o/blob/master/examples/libh2o/simple.c).
+
+First the basics:
+
+```
+static h2o_globalconf_t config;
+static h2o_context_t ctx;
+static h2o_accept_ctx_t accept_ctx;
+```
+
+These three contain global `h2o` configuration, a `context` for your
+webserver plus an accept `context` for your listener thread.
+
+Then to get going:
+
+```
+h2o_config_init(&config);
+h2o_hostconf_t* hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
+
+h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, "/hello", 0);
+h2o_handler_t *handler = h2o_create_handler(pathconf, sizeof(*handler));
+handler->on_req = helloHandler;
+
+h2o_context_init(&ctx, h2o_evloop_create(), &config);
+
+accept_ctx.ctx = &ctx;
+accept_ctx.hosts = config.hosts;
+``` 
+
+This initializes the global config to default values and it registrs a host
+called 'default'. Note that this accepts a `h2o_iovec_t` as described above.
+
+Next up we register a `path` for "/hello". We then create a handler for this
+path, and we add a function `helloHandler` to it.
+
+We then initialize the global `ctx` with the global `config`. 
+
+Next up, listening and setting up the event loop:
+
+```
+    struct sockaddr_in addr;
+    int fd, reuseaddr_flag = 1;
+    h2o_socket_t *sock;
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(0x7f000001);
+    addr.sin_port = htons(12345);
+
+    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ||
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0 ||
+        bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 || listen(fd, SOMAXCONN) != 0) {
+        return -1;
+    }
+```
+
+This is the usual longwinded C way of creating a socket, in this case, one
+that listens on 127.0.0.1:12345.
+
+```
+    sock = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
+    h2o_socket_read_start(sock, on_accept);
+```
+
+This is the `h2o` specifc bit, where we add the socket we created to the
+event loop, and tell `h2o` not to read from this socket but if it becomes
+readable to call our handler `on_accept`. This is what happens there:
+
+```
+static void on_accept(h2o_socket_t *listener, const char *err)
+{
+    h2o_socket_t *sock;
+
+    if (err != NULL) {
+        return;
+    }
+
+    if ((sock = h2o_evloop_socket_accept(listener)) == NULL)
+        return;
+    h2o_accept(&accept_ctx, sock);
+}
+```
+
+This is effectively a filter that calls `accept(2)` on the listener socket
+(through h2o_evloop_socket_accept) and then tells `h2o` to accept this new
+socket as well.
+
+Once all this is setup we can enter the `h2o` event loop:
+
+```
+    while (h2o_evloop_run(ctx.loop, INT32_MAX) == 0)
+        ;
+```
+
+Here is the `helloHandler` function we hooked above:
+
+```
+static int helloHandler(h2o_handler_t* handler, h2o_req_t* req)
+{
+  if (!h2o_memis(req->method.base, req->method.len, H2O_STRLIT("GET")))
+    return -1;
+  
+  req->res.status = 200;
+  req->res.reason = "OK";
+  h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, 
+    NULL, H2O_STRLIT("text/plain"));    
+  h2o_send_inline(req, H2O_STRLIT("Hello, world\n"));
+  
+  return 0;
+}
+```
+
+Note that this uses `h2o_memis` to check it is getting a GET request, and if
+it isn't, the handler returns -1 to indicate it did not handle the request.
+
+We then set status, reason, content-type, and use the helper function
+`h2o_send_inline` to send a response.
+
+`h2o_send_inline` is a slower convenience function for sending chunks of
+memory to a client. Behind this function hide `generators` which are a more
+generic and faster way of sending data, without having to supply all data in
+one go.
+
+# Config, context, accept context
+In this small sample, we've been passing around an H2O config, a context and
+an accept context. 
+
+**NOTE**: This section is quite speculative
+
+## Global configuration
+The global configuration actually is not global, as in, it is possible to
+run several completely independent h2o instances within a single binary. It
+is however also possible to have a single instance that serves on several
+listening sockets and also offers multiple servers in there, and these then
+share the 'global' configuration.
+
+The global configuration knows specifies things like HTTP/1 or HTTP/2
+timeouts, if HTTP/1 connections should attempt an upgrade to HTTP/2, maximum
+size of POST data and many other settings. The defaults are good though.
+
+## Accept context
+A socket that listens can serve all or only some of the registered 'hosts'.
+It can also have its own SSL/TLS settings. These details are stored in the
+`h2o_accept_ctx_t`.
+
+## Context
+The context owns the event loop, to which multiple sockets can report, that
+in turn can report to different accept contexts. 
+
+It also keeps counters for HTTP/1 and HTTP/2 connections.
+
+# Generators
+As noted above, `h2o_send_inline` is a convenience function for sending data
+in response to an HTTP request. If we want to send a fixed blob of data we
+already have in memory this is fine, but if we for example want to send the
+large output of a SQL query, which arrives in separate rows, this is not the
+best interface.
+
+The 'long form' of sending data to a request is by setting a `generator`:
+
+```
+    h2o_generator_t generator = {proceedSending, stopSending};
+    h2o_start_response(req, &generator);
+
+    h2o_iovec_t buf;
+    
+    // gather initial data from SQL query, store it in buf
+    
+    h2o_send(req, &buf, 1, H2O_SEND_STATE_IN_PROGRESS);
+```
+
+First we register two callbacks: `proceedSending` and `stopSending`. The
+last one is called when the HTTP session went away for any reason, and
+offers is the ability to close down the SQL session or perform any other
+cleanup.
+
+We then gather some initial data and send that using `h2o_send`. In this
+syntax we can pass an array of `h2o_iovec_t` buffers, but here we pass just
+1. The final parameter `H2O_SEND_STATE_IN_PROGRESS` means that at a later
+stage we might have more data to offer. 
+
+Importantly, while `h2o_send` is working on the data, you must not touch of
+free the data you passed to be sent: `libh2o` made no copy for you. This in
+contrast to `h2o_send_inline` which as a convenience does so for you.
+
+Once `libh2o` has sent out the initial data, it will call our
+`proceedSending` callback to ask for more. If in `proceedSending` we find
+that we've hit the end of the data we want to serve, we emit a final call to
+`h2o_send` with as final parameter `H2O_SEND_STATE_FINAL`. 
+
+We are not guaranteed to get a call to `stopSending`, so any cleanup should
+be performed once we pass `H2O_SEND_STATE_FINAL`.
+
+# Serving files
+A special case is serving static files from disk. This can of course be
+implemented using `h2o_start_response`, but `h2o` has built-in primitives to
+make this happen:
+
+```
+    h2o_pathconf_t* pathconf = h2o_config_register_path(hostconf, "/", 0);
+    h2o_file_register(pathconf, "examples/doc_root", NULL, NULL, 0);
+```
+The third parameter of `h2o_file_register` specifies an array of files that
+could serve the index of that path. The fourth parameter is an optional map
+of MIME-types. The final parameter specifies flags [XXX which ones?]
+
+If it is known what files to serve exactly, `h2o_file_register_file` can be
+used.
+
+<!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="ext/markdeep.min.js"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
