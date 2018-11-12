@@ -228,6 +228,10 @@ memory to a client. Behind this function hide `generators` which are a more
 generic and faster way of sending data, without having to supply all data in
 one go.
 
+Finally, please note that `libh2o` is event driven. If our `helloHandler`
+sleeps for a second, nothing else will happen during that second! Please
+read on for how to deal with slow data sources.
+
 # Object lifetime, memory management
 As noted, memory management is hard. Within libh2o most management is
 automated for you. For example, when you get passed a request (`h2o_req_t`),
@@ -256,7 +260,8 @@ static void on_FILE_close(void *ptr)
 ```
 When used like this, we can be sure that memory for our file pointer is
 cleaned up, AND that the file pointer will get closed when the request is
-done or otherwise disposed of.
+done or otherwise disposed of. Such automated memory and resource management
+is vital when using asynchronous operations.
 
 # Config, context, accept context
 In this small sample, we've been passing around an H2O config, a context and
@@ -421,8 +426,83 @@ in "h2o the server". Is this CASPER?
 do that?
 ...
 
-# Notes on asynchronous operations
-See [this issue](https://github.com/h2o/h2o/issues/1894) for now.
+# H2O as a client library
 ...
+
+# H2O multithreading
+... 
+
+# Notes on asynchronous operations
+Requests can be handled completely within a request handler when data is
+immediately available (in memory) to send to the client. Often this will not
+be the case. 
+
+`libh2o` offers multiple ways to deal with slow data sources, or with large
+chunks of data we do no want to keep in memory for a long time.
+
+## Stop and proceed
+As noted above, we can send an initial amount of data with `h2o_send` but
+note that this is not yet everything. The `proceed` callback of the
+generator will then be called once `h2o` needs more data from us to send to
+the client. This callback should then immediately supply that data. For many
+data sources this is fast enough - for example, when reading from a file.
+
+## Asynchronous
+At other times however we may be serving data sourced from a database or
+another service reached over the network in which case blocking on our
+`proceed` callback is not feasible.
+
+The good news is that `libh2o` is completely asynchronous itself - it will
+not get confused if your handler does not immediately do anything with a
+request. 
+
+This means that in the request handler, or in the `proceed` callback, you
+can send out a request for more data to your backend, and return control to
+the `libh2o` event loop. When you do so however, you must make sure that
+event loop picks up when you have new data available!
+
+If you are streaming data from another socket, this is as easy as adding
+that socket to the main event loop like this:
+
+```
+h2o_sock_t sock = h2o_evloop_socket_create(dsc->h2o_ctx.loop, 
+  oursock, H2O_SOCKET_FLAG_DONT_READ);
+// a pointer that tells you which request this belongs to  
+sock->data = req; 
+
+// this listens to responses from our socket to turn into http data
+h2o_socket_read_start(sock, on_oursock);
+```
+
+When the `on_oursock` callback gets called, we know it will be able to read
+data from `oursock` & pass it on to `h2o_send`, being careful to mark that
+as `H2O_SEND_STATE_IN_PROGRESS` unless we got an end-of-data indicator.
+
+**HOWEVER**: while waiting for data from the backend socket, the actual
+`libh2o` request may have disappeared! There may have been a network error,
+or the client disconnected, or a timeout happened. This will cause big
+problems in `on_oursock` which will then attempt to send data to a dead
+request. This is not a theoretical problem by the way, it will happen almost
+immediately under any kind of load.
+
+There are two ways of detecting that a socket is gone. The first one is to
+set the `stop` callback when calling `h2o_start_response`. This will get
+called if the request times out. From that callback, it is then possible to
+disconnect `oursock` from the event loop or to close it or to otherwise set
+a marker that the `on_oursock` callback does not touch the request.
+
+The downside of this method is that in the initial request handler, not
+everything may already be known to issue a response.  For example, it is no
+longer possible to create a 4xx or 5xx error afterwards. And you may need to
+do that based on data you received from `oursock`.
+
+A second way of being informed of a request teardown is by associating some
+memory with it using `h2o_mem_alloc_shared` as shown above. If a request
+gets disposed, the callback associated with this memory gets called, and it
+too can then take measures to prevent `on_oursock` from touching the now
+deleted request.
+
+Some more context can be found on this [GitHub
+issue](https://github.com/h2o/h2o/issues/1894).
 
 <!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="ext/markdeep.min.js"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
