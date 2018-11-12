@@ -228,6 +228,36 @@ memory to a client. Behind this function hide `generators` which are a more
 generic and faster way of sending data, without having to supply all data in
 one go.
 
+# Object lifetime, memory management
+As noted, memory management is hard. Within libh2o most management is
+automated for you. For example, when you get passed a request (`h2o_req_t`),
+it is not your responsibility to free it when you are done. 
+
+And in fact, you can use a request to allocate data associated with that
+request, and this will be deallocated if for whatever reason the request is
+done or goes away.
+
+As an example, to allocate an stdio FILE pointer:
+
+```
+FILE** fpptr = h2o_mem_alloc_shared(req->pool, sizeof(FILE*), on_FILE_close);
+*fpptr = fopen("/etc/motd", "r");
+// do things with file
+```
+Note that we also passed a callback `on_FILE_close` and it looks like this:
+
+```
+static void on_FILE_close(void *ptr)
+{
+  FILE** fpptr = (FILE**) ptr;
+  if(*fpptr)
+    fclose(fpptr);
+}
+```
+When used like this, we can be sure that memory for our file pointer is
+cleaned up, AND that the file pointer will get closed when the request is
+done or otherwise disposed of.
+
 # Config, context, accept context
 In this small sample, we've been passing around an H2O config, a context and
 an accept context. 
