@@ -401,20 +401,15 @@ if(SSL_CTX_set_cipher_list(accept_ctx.ssl_ctx, ciphers) != 1) {
 }
 ```
 
-Finally, we can hook up HTTP2 selection to 'NPN' and 'ALPN':
-
-**Question**: Is this good? Should users do NPN and ALPN? What is the
-difference?
+Finally, we can hook up HTTP/2 selection to ALPN, which allows a client to
+immediately select HTTP/2 through the TLS negotiation:
 
 ```
-/* setup protocol negotiation methods */ // I have no idea what this means
-#if H2O_USE_NPN
-  h2o_ssl_register_npn_protocols(accept_ctx.ssl_ctx, h2o_http2_npn_protocols);
-#endif
-#if H2O_USE_ALPN
   h2o_ssl_register_alpn_protocols(accept_ctx.ssl_ctx, h2o_http2_alpn_protocols);
-#endif
 ```
+
+Note: there also is support for another selection protocol called NPN, but
+it appears to no longer be used by clients.
 
 # HTTP/2 specific features
 
@@ -427,7 +422,26 @@ do that?
 ...
 
 # H2O as a client library
-...
+To facilitate proxying, H2O also supports outgoing HTTP connections. As with
+the rest of `libh2o`, this is an industrial strength solution so it requires
+a bit of work to setup.
+
+`h2o_httpclient_connect` initiates a connection based on a parsed URL.  This
+will also (asynchronously) resolve IP addresses for you.  Once the
+connection in place, an `on_connect` callback is called.  This has to
+perform various mechanics and then returns an `on_head` callback which is
+called when the headers have been received from the HTTP server.
+
+`on_head` can then look at the headers and in turn returns the `on_body`
+callback. This then gets called whenever a chunk of body is ready for
+processing, which can then be found on the `h2o_httpclient_t`* parameter.
+The `on_body` callback can tell `libh2o` it has consumed from the buffer
+by calling `h2o_buffer_consume`. 
+
+Sample code can be found in
+[http1client.c](https://github.com/h2o/h2o/blob/master/examples/libh2o/http1client.c)
+from the `libh2o` examples directory, where you can see the (verbose)
+mechanics we skipped over in the preceeding description. 
 
 # H2O multithreading
 ... 
