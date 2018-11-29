@@ -298,8 +298,8 @@ timeouts, if HTTP/1 connections should attempt an upgrade to HTTP/2, maximum
 size of POST data and many other settings. The defaults are good though.
 
 ## Accept context
-An accept context can be plaintext or a TLS context. One socket can host
-multiple sockets, and sockets are registered to a context.
+An accept context can be plaintext or a TLS context.  One accept context can
+host multiple sockets, and sockets are registered to a context.
 
 Note that hosts that are registered exist within all contexts, and thus also
 on all sockets.
