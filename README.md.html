@@ -116,31 +116,48 @@ static h2o_accept_ctx_t accept_ctx;
 ```
 
 These three contain global `h2o` configuration, a `context` for your
-web server plus an accept `context` for your listener thread.
+web server plus an accept `context` for your listener thread. Note that the
+`static` is not accidental: **be sure to zero these structs before using
+them**!
 
 Then to get going:
 
 ```
 h2o_config_init(&config);
 h2o_hostconf_t* hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
-
-h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, "/hello", 0);
-h2o_handler_t *helloHandler = h2o_create_handler(pathconf, sizeof(*handler));
-handler->on_req = helloHandler;
-
-h2o_context_init(&ctx, h2o_evloop_create(), &config);
-
-accept_ctx.ctx = &ctx;
-accept_ctx.hosts = config.hosts;
-``` 
+```
 
 This initializes the global config to default values and it registers a host
 called 'default'. Note that this accepts a `h2o_iovec_t` as described above.
+When registering the host we also pass a port, where 65535 means 'the
+default port for the protocol used', or in other words '80' or '443'. 
+
+If only one host is registered, all of this is moot, since all queries,
+regardless of host name or port, then end up with the first host. 
+
+When registering multiple host names, a single registration is enough when
+using standard ports (80, 443). If non-standard ports are used, you must
+register a name twice, once for each port (say, 8000, 4430). 
 
 Next up we register a `path` for "/hello". We then create a handler for this
-path, and we add a function `helloHandler` to it.
+path, and we add a function `helloHandler` to it:
+
+```
+h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, "/hello", 0);
+h2o_handler_t *handler = h2o_create_handler(pathconf, sizeof(*handler));
+handler->on_req = handler;
+```
+
+Note that paths are checked in order. This means that if the "/" path is
+registered first, no subsequent paths are ever going to match. So register
+paths from most specific to most general.
 
 We then initialize the global `ctx` with the global `config`. 
+```
+h2o_context_init(&ctx, h2o_evloop_create(), &config);
+accept_ctx.ctx = &ctx;
+accept_ctx.hosts = config.hosts;
+``` 
 
 Next up, listening and setting up the event loop:
 
@@ -281,9 +298,11 @@ timeouts, if HTTP/1 connections should attempt an upgrade to HTTP/2, maximum
 size of POST data and many other settings. The defaults are good though.
 
 ## Accept context
-A socket that listens can serve all or only some of the registered 'hosts'.
-It can also have its own SSL/TLS settings. These details are stored in the
-`h2o_accept_ctx_t`.
+An accept context can be plaintext or a TLS context. One socket can host
+multiple sockets, and sockets are registered to a context.
+
+Note that hosts that are registered exist within all contexts, and thus also
+on all sockets.
 
 ## Context
 The context owns the event loop, to which multiple sockets can report, that
@@ -377,6 +396,8 @@ is how we hook op OpenSSL to the accept context:
 accept_ctx.ssl_ctx = SSL_CTX_new(SSLv23_server_method());
 accept_ctx.expect_proxy_line = 0; // makes valgrind happy
 ```
+
+**Please note that the `accept_ctx` struct must be zeroed before use**.
 
 We can then continue to configure OpenSSL with options:
 ```
