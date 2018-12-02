@@ -320,7 +320,7 @@ best interface.
 The 'long form' of sending data to a request is by setting a `generator`:
 
 ```
-    h2o_generator_t generator = {proceedSending, stopSending};
+    static h2o_generator_t generator = {proceedSending, stopSending};
     h2o_start_response(req, &generator);
 
     h2o_iovec_t buf;
@@ -334,6 +334,11 @@ First we register two callbacks: `proceedSending` and `stopSending`. The
 last one is called when the HTTP session went away for any reason, and
 offers us the ability to close down the SQL session or perform any other
 cleanup.
+
+**Note**: As elsewhere, the `static` is not optional. When we pass a pointer
+to the generator, `libh2o` makes no copy for us. Without `static`, our
+generator would soon be pointing to dangling memory. There is a reason for
+this behaviour which is explained [below](#passingdata).
 
 We then gather some initial data and send that using `h2o_send`. In this
 syntax we can pass an array of `h2o_iovec_t` buffers, but here we pass just
@@ -368,9 +373,69 @@ of MIME-types. The final parameter specifies flags [XXX which ones?]
 
 If it is known what files to serve exactly, `h2o_file_register_file` can be
 used.
+<a name="passingdata"></a>
+# Passing data to handlers and generators
 
-# Passing data to handlers
+In general, passing data around in `libh2o` is somewhat cumbersome, but we
+hope, at least very efficient.  The general technique is that when we set a
+`handler` or a `generator`, we send a pointer to something that starts with
+a `h2o_handler_t` or `h2o_generator_t` respectively.  If we have no need to
+pass additional data, that is in fact all that will be stored at that
+pointer.
+
+But if we want to pass additional data, we do so by creating a larger
+struct, that **starts** with a `h2o_handler_t` (for a handler):
+
+```
+struct ParameterHandler
+{
+  h2o_handler_t handler;
+  int parameter;
+};
+// .. set pathconf ..
+ParameterHandler *handler = 
+  (ParameterHandler*) h2o_create_handler(pathconf, sizeof (*handler));
+handler->handler.on_req = ourHandler;
+handler->parameter = 42;
+```
+
+Within ourHandler we then do the reverse and cast the `h2o_handler_t`
+pointer back to a `ParameterHandler` pointer:
+```
+int ourHandler(h2o_handler_t* handler, h2o_req_t* req)
+{
+  ParameterHandler* phandler = (ParameterHandler*)handler;
+  // phandler->parameter will now be 42
+  ...
+}
+```
+## To a generator
+When we need to pass data to a generator, we use a very similar technique,
+except without `h2o_create_handler`'s help:
+
+```
+struct State
+{
+  h2o_generator_t super;
+  int parameter;
+};
 ...
+
+State* state = (State*)h2o_mem_alloc_shared(&req->pool, sizeof(State), on_dispose);
+state->super = {proceedSending, stopSending}
+state->parameter = 23;
+
+...
+void proceedSending(h2o_generator_t *self, h2o_req_t *req)
+{
+  State* state = (State*)self;
+  // state->parameter is now 23
+  ...
+}
+```
+
+Note that we may need to pass an `on_dispose` callback if State had any
+buffers in need of freeing (which is very likely for a generator).
 
 # Logging
 ...
