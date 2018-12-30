@@ -107,6 +107,8 @@ functional web server. What follows is a slightly reordered version of
 [simple.c](https://github.com/h2o/h2o/blob/master/examples/libh2o/simple.c)
 from the `h2o` examples directory.
 
+If you want to get going quickly, there is a Makefile. Simply [clone the repository](https://github.com/ahupowerdns/hello-libh2o/) and run a Make.
+
 First the basics:
 
 ```
@@ -369,7 +371,13 @@ make this happen:
 ```
 The third parameter of `h2o_file_register` specifies an array of files that
 could serve the index of that path. The fourth parameter is an optional map
-of MIME-types. The final parameter specifies flags [XXX which ones?]
+of MIME-types. The final parameter specifies flags. Flags available are:
+```
+    H2O_FILE_FLAG_NO_ETAG = 0x1,
+    H2O_FILE_FLAG_DIR_LISTING = 0x2,
+    H2O_FILE_FLAG_SEND_COMPRESSED = 0x4,
+    H2O_FILE_FLAG_GUNZIP = 0x8
+```
 
 If it is known what files to serve exactly, `h2o_file_register_file` can be
 used.
