@@ -19,6 +19,10 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+
+/* To complle this on ubuntu, you'll need libuv-evloop. Compile with:
+gcc simple.cc -lh2o-evloop -lwslay -o simple
+*/
  
 #define  H2O_USE_LIBUV 0
 #include <errno.h>
